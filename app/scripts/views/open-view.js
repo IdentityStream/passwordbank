@@ -1,4 +1,4 @@
-import kdbxweb from 'kdbxweb';
+import * as kdbxweb from 'kdbxweb';
 import { View } from 'framework/views/view';
 import { Events } from 'framework/events';
 import { Storage } from 'storage';
@@ -8,6 +8,8 @@ import { KeyHandler } from 'comp/browser/key-handler';
 import { SecureInput } from 'comp/browser/secure-input';
 import { Launcher } from 'comp/launcher';
 import { Alerts } from 'comp/ui/alerts';
+import { UsbListener } from 'comp/app/usb-listener';
+import { YubiKey } from 'comp/app/yubikey';
 import { Keys } from 'const/keys';
 import { Comparators } from 'util/data/comparators';
 import { Features } from 'util/features';
@@ -17,8 +19,10 @@ import { Logger } from 'util/logger';
 import { InputFx } from 'util/ui/input-fx';
 import { OpenConfigView } from 'views/open-config-view';
 import { StorageFileListView } from 'views/storage-file-list-view';
-import { escape, omit } from 'util/fn';
+import { OpenChalRespView } from 'views/open-chal-resp-view';
+import { omit } from 'util/fn';
 import { GeneratorView } from 'views/generator-view';
+import { NativeModules } from 'comp/launcher/native-modules';
 import template from 'templates/open.hbs';
 
 const logger = new Logger('open-view');
@@ -34,6 +38,7 @@ class OpenView extends View {
         'click .open__icon-open': 'openFile',
         'click .open__icon-new': 'createNew',
         'click .open__icon-demo': 'createDemo',
+        'click .open__icon-yubikey': 'openYubiKey',
         'click .open__icon-more': 'toggleMore',
         'click .open__icon-storage': 'openStorage',
         'click .open__icon-settings': 'openSettings',
@@ -44,23 +49,24 @@ class OpenView extends View {
         'keypress .open__pass-input': 'inputKeypress',
         'click .open__pass-enter-btn': 'openDb',
         'click .open__settings-key-file': 'openKeyFile',
+        'click .open__settings-yubikey': 'selectYubiKeyChalResp',
         'click .open__last-item': 'openLast',
         'click .open__icon-generate': 'toggleGenerator',
+        'click .open__message-cancel-btn': 'openMessageCancelClick',
         dragover: 'dragover',
         dragleave: 'dragleave',
         drop: 'drop'
     };
 
     params = null;
-
     passwordInput = null;
-
     busy = false;
-
     currentSelectedIndex = -1;
+    encryptedPassword = null;
 
     constructor(model) {
         super(model);
+        window.$ = $;
         this.resetParams();
         this.passwordInput = new SecureInput();
         this.onKey(Keys.DOM_VK_Z, this.undoKeyPress, KeyHandler.SHORTCUT_ACTION, 'open');
@@ -70,9 +76,12 @@ class OpenView extends View {
         this.onKey(Keys.DOM_VK_DOWN, this.moveOpenFileSelectionDown, null, 'open');
         this.onKey(Keys.DOM_VK_UP, this.moveOpenFileSelectionUp, null, 'open');
         this.listenTo(Events, 'main-window-focus', this.windowFocused.bind(this));
+        this.listenTo(Events, 'usb-devices-changed', this.usbDevicesChanged.bind(this));
+        this.listenTo(Events, 'unlock-message-changed', this.unlockMessageChanged.bind(this));
         this.once('remove', () => {
             this.passwordInput.reset();
         });
+        this.listenTo(Events, 'user-idle', this.userIdle);
     }
 
     render() {
@@ -80,29 +89,46 @@ class OpenView extends View {
             clearTimeout(this.dragTimeout);
         }
         const storageProviders = [];
-        Object.keys(Storage).forEach(name => {
-            const prv = Storage[name];
-            if (!prv.system && prv.enabled) {
-                storageProviders.push(prv);
-            }
-        });
+        if (this.model.settings.canOpenStorage) {
+            Object.keys(Storage).forEach((name) => {
+                const prv = Storage[name];
+                if (!prv.system && prv.enabled) {
+                    storageProviders.push(prv);
+                }
+            });
+        }
         storageProviders.sort((x, y) => (x.uipos || Infinity) - (y.uipos || Infinity));
-        const showMore = storageProviders.length || this.model.settings.canOpenSettings;
+        const showMore =
+            storageProviders.length ||
+            this.model.settings.canOpenSettings ||
+            this.model.settings.canOpenGenerator;
         const showLogo =
             !showMore &&
             !this.model.settings.canOpen &&
             !this.model.settings.canCreate &&
             !(this.model.settings.canOpenDemo && !this.model.settings.demoOpened);
+        const hasYubiKeys = !!UsbListener.attachedYubiKeys;
+        const canOpenYubiKey =
+            hasYubiKeys &&
+            this.model.settings.canOpenOtpDevice &&
+            this.model.settings.yubiKeyShowIcon &&
+            !this.model.files.get('yubikey');
+        const canUseChalRespYubiKey = hasYubiKeys && this.model.settings.yubiKeyShowChalResp;
+
         super.render({
             lastOpenFiles: this.getLastOpenFiles(),
             canOpenKeyFromDropbox: !Launcher && Storage.dropbox.enabled,
             demoOpened: this.model.settings.demoOpened,
             storageProviders,
+            unlockMessageRes: this.model.unlockMessageRes,
             canOpen: this.model.settings.canOpen,
             canOpenDemo: this.model.settings.canOpenDemo,
             canOpenSettings: this.model.settings.canOpenSettings,
+            canOpenGenerator: this.model.settings.canOpenGenerator,
             canCreate: this.model.settings.canCreate,
             canRemoveLatest: this.model.settings.canRemoveLatest,
+            canOpenYubiKey,
+            canUseChalRespYubiKey,
             showMore,
             showLogo
         });
@@ -120,12 +146,15 @@ class OpenView extends View {
             keyFileData: null,
             keyFilePath: null,
             fileData: null,
-            rev: null
+            rev: null,
+            opts: null,
+            chalResp: null
         };
     }
 
     windowFocused() {
         this.inputEl.focus();
+        this.checkIfEncryptedPasswordDateIsValid();
     }
 
     focusInput(focusOnMobile) {
@@ -135,21 +164,17 @@ class OpenView extends View {
     }
 
     getLastOpenFiles() {
-        return this.model.fileInfos.map(fileInfo => {
-            let icon = 'file-text';
+        return this.model.fileInfos.map((fileInfo) => {
+            let icon = 'file-alt';
             const storage = Storage[fileInfo.storage];
             if (storage && storage.icon) {
                 icon = storage.icon;
-            }
-            if (storage && storage.iconSvg) {
-                icon = null;
             }
             return {
                 id: fileInfo.id,
                 name: fileInfo.name,
                 path: this.getDisplayedPath(fileInfo),
-                icon,
-                iconSvg: storage ? storage.iconSvg : undefined
+                icon
             };
         });
     }
@@ -169,7 +194,7 @@ class OpenView extends View {
         Alerts.alert({
             header: Locale.openLocalFile,
             body: Locale.openLocalFileBody,
-            icon: 'file-text',
+            icon: 'file-alt',
             buttons: [
                 { result: 'skip', title: Locale.openLocalFileDontShow, error: true },
                 { result: 'ok', title: Locale.alertOk }
@@ -177,7 +202,7 @@ class OpenView extends View {
             click: '',
             esc: '',
             enter: '',
-            success: res => {
+            success: (res) => {
                 this.focusInput();
                 if (res === 'skip') {
                     this.model.settings.skipOpenLocalWarn = true;
@@ -189,17 +214,23 @@ class OpenView extends View {
     fileSelected(e) {
         const file = e.target.files[0];
         if (file) {
-            this.processFile(file, success => {
-                if (success && !file.path && this.reading === 'fileData') {
-                    this.showLocalFileAlert();
-                }
-            });
+            if (this.model.settings.canImportCsv && /\.csv$/.test(file.name)) {
+                Events.emit('import-csv-requested', file);
+            } else if (this.model.settings.canImportXml && /\.xml$/.test(file.name)) {
+                this.setFile(file, null, this.showLocalFileAlert.bind(this));
+            } else {
+                this.processFile(file, (success) => {
+                    if (success && !file.path && this.reading === 'fileData') {
+                        this.showLocalFileAlert();
+                    }
+                });
+            }
         }
     }
 
     processFile(file, complete) {
         const reader = new FileReader();
-        reader.onload = e => {
+        reader.onload = (e) => {
             let success = false;
             switch (this.reading) {
                 case 'fileData': {
@@ -215,8 +246,10 @@ class OpenView extends View {
                             if (!this.params.keyFileData) {
                                 this.params.keyFileName = null;
                             }
+                            this.encryptedPassword = null;
                             this.displayOpenFile();
                             this.displayOpenKeyFile();
+                            this.displayOpenDeviceOwnerAuth();
                             success = true;
                             break;
                         case 'xml':
@@ -226,7 +259,9 @@ class OpenView extends View {
                             this.params.path = null;
                             this.params.storage = null;
                             this.params.rev = null;
+                            this.encryptedPassword = null;
                             this.importDbWithXml();
+                            this.displayOpenDeviceOwnerAuth();
                             success = true;
                             break;
                         case 'kdb':
@@ -299,7 +334,7 @@ class OpenView extends View {
 
     displayOpenFile() {
         this.$el.addClass('open--file');
-        this.$el.find('.open__settings-key-file').removeClass('hide');
+        this.$el.find('.open__settings-key-file,.open__settings-yubikey').removeClass('hide');
         this.inputEl[0].removeAttribute('readonly');
         this.inputEl[0].setAttribute('placeholder', Locale.openPassFor + ' ' + this.params.name);
         this.focusInput();
@@ -313,9 +348,24 @@ class OpenView extends View {
         this.focusInput();
     }
 
+    displayOpenChalResp() {
+        this.$el
+            .find('.open__settings-yubikey')
+            .toggleClass('open__settings-yubikey--active', !!this.params.chalResp);
+    }
+
+    displayOpenDeviceOwnerAuth() {
+        const available = !!this.encryptedPassword;
+        const passEmpty = !this.passwordInput.length;
+        const canUseEncryptedPassword = available && passEmpty;
+        this.el
+            .querySelector('.open__pass-enter-btn')
+            .classList.toggle('open__pass-enter-btn--touch-id', canUseEncryptedPassword);
+    }
+
     setFile(file, keyFile, fileReadyCallback) {
         this.reading = 'fileData';
-        this.processFile(file, success => {
+        this.processFile(file, (success) => {
             if (success && keyFile) {
                 this.reading = 'keyFileData';
                 this.processFile(keyFile);
@@ -391,10 +441,7 @@ class OpenView extends View {
         if (this.busy) {
             return;
         }
-        const id = $(e.target)
-            .closest('.open__last-item')
-            .data('id')
-            .toString();
+        const id = $(e.target).closest('.open__last-item').data('id').toString();
         if ($(e.target).is('.open__last-item-icon-del')) {
             const fileInfo = this.model.fileInfos.get(id);
             if (!fileInfo.storage || fileInfo.modified) {
@@ -454,6 +501,10 @@ class OpenView extends View {
         }
     }
 
+    inputInput() {
+        this.displayOpenDeviceOwnerAuth();
+    }
+
     toggleCapsLockWarning(on) {
         this.$el.find('.open__pass-warning').toggleClass('invisible', !on);
     }
@@ -507,8 +558,8 @@ class OpenView extends View {
         this.closeConfig();
         this.$el.removeClass('open--drag');
         const files = [...(e.target.files || e.dataTransfer.files)];
-        const dataFile = files.find(file => /\.kdbx$/i.test(file.name));
-        const keyFile = files.find(file => /\.key$/i.test(file.name));
+        const dataFile = files.find((file) => /\.kdbx$/i.test(file.name));
+        const keyFile = files.find((file) => /\.keyx?$/i.test(file.name));
         if (dataFile) {
             this.setFile(
                 dataFile,
@@ -518,14 +569,14 @@ class OpenView extends View {
             return;
         }
         if (this.model.settings.canImportXml) {
-            const xmlFile = files.find(file => /\.xml$/i.test(file.name));
+            const xmlFile = files.find((file) => /\.xml$/i.test(file.name));
             if (xmlFile) {
                 this.setFile(xmlFile, null, this.showLocalFileAlert.bind(this));
                 return;
             }
         }
         if (this.model.settings.canImportCsv) {
-            const csvFile = files.find(file => /\.csv$/i.test(file.name));
+            const csvFile = files.find((file) => /\.csv$/i.test(file.name));
             if (csvFile) {
                 Events.emit('import-csv-requested', csvFile);
             }
@@ -560,10 +611,14 @@ class OpenView extends View {
         this.params.keyFileName = fileInfo.keyFileName;
         this.params.keyFilePath = fileInfo.keyFilePath;
         this.params.keyFileData = null;
+        this.params.opts = fileInfo.opts;
+        this.params.chalResp = fileInfo.chalResp;
+        this.setEncryptedPassword(fileInfo);
+
         this.displayOpenFile();
         this.displayOpenKeyFile();
-
-        this.openFileWithFingerprint(fileInfo);
+        this.displayOpenChalResp();
+        this.displayOpenDeviceOwnerAuth();
 
         if (fileWasClicked) {
             this.focusInput(true);
@@ -580,27 +635,15 @@ class OpenView extends View {
         this.params.name = path.match(/[^/\\]*$/)[0];
         this.params.rev = null;
         this.params.fileData = null;
+        this.encryptedPassword = null;
         this.displayOpenFile();
+        this.displayOpenDeviceOwnerAuth();
         if (keyFilePath) {
             const parsed = Launcher.parsePath(keyFilePath);
             this.params.keyFileName = parsed.file;
             this.params.keyFilePath = keyFilePath;
             this.params.keyFileData = null;
             this.displayOpenKeyFile();
-        }
-    }
-
-    openFileWithFingerprint(fileInfo) {
-        if (!fileInfo.fingerprint) {
-            return;
-        }
-
-        if (Launcher && Launcher.fingerprints) {
-            Launcher.fingerprints.auth(fileInfo.id, fileInfo.fingerprint, password => {
-                this.inputEl.val(password);
-                this.inputEl.trigger('input');
-                this.openDb();
-            });
         }
     }
 
@@ -634,15 +677,45 @@ class OpenView extends View {
         this.inputEl.attr('disabled', 'disabled');
         this.busy = true;
         this.params.password = this.passwordInput.value;
-        this.afterPaint(() => {
-            this.model.openFile(this.params, err => this.openDbComplete(err));
-        });
+        if (this.encryptedPassword && !this.params.password.length) {
+            logger.debug('Encrypting password using hardware decryption');
+            const touchIdPrompt = Locale.bioOpenAuthPrompt.replace('{}', this.params.name);
+            const encryptedPassword = kdbxweb.ProtectedValue.fromBase64(
+                this.encryptedPassword.value
+            );
+            Events.emit('hardware-decrypt-started');
+            NativeModules.hardwareDecrypt(encryptedPassword, touchIdPrompt)
+                .then((password) => {
+                    Events.emit('hardware-decrypt-finished');
+
+                    this.params.password = password;
+                    this.params.encryptedPassword = this.encryptedPassword;
+                    this.model.openFile(this.params, (err) => this.openDbComplete(err));
+                })
+                .catch((err) => {
+                    Events.emit('hardware-decrypt-finished');
+
+                    if (err.message.includes('User refused')) {
+                        err.userCanceled = true;
+                    } else if (err.message.includes('SecKeyCreateDecryptedData')) {
+                        err.maybeTouchIdChanged = true;
+                    }
+                    logger.error('Error in hardware decryption', err);
+                    this.openDbComplete(err);
+                });
+        } else {
+            this.params.encryptedPassword = null;
+            this.afterPaint(() => {
+                this.model.openFile(this.params, (err) => this.openDbComplete(err));
+            });
+        }
     }
 
     openDbComplete(err) {
         this.busy = false;
         this.$el.toggleClass('open--opening', false);
-        this.inputEl.removeAttr('disabled').toggleClass('input--error', !!err);
+        const showInputError = err && !err.userCanceled;
+        this.inputEl.removeAttr('disabled').toggleClass('input--error', !!showInputError);
         if (err) {
             logger.error('Error opening file', err);
             this.focusInput(true);
@@ -650,17 +723,20 @@ class OpenView extends View {
             this.inputEl[0].selectionEnd = this.inputEl.val().length;
             if (err.code === 'InvalidKey') {
                 InputFx.shake(this.inputEl);
+            } else if (err.userCanceled) {
+                // nothing to do
             } else {
                 if (err.notFound) {
                     err = Locale.openErrorFileNotFound;
                 }
+                let alertBody = Locale.openErrorDescription;
+                if (err.maybeTouchIdChanged) {
+                    alertBody += '\n' + Locale.openErrorDescriptionMaybeTouchIdChanged;
+                }
                 Alerts.error({
                     header: Locale.openError,
-                    body:
-                        Locale.openErrorDescription +
-                        '<pre class="modal__pre">' +
-                        escape(err.toString()) +
-                        '</pre>'
+                    body: alertBody,
+                    pre: this.errorToString(err)
                 });
             }
         } else {
@@ -676,7 +752,7 @@ class OpenView extends View {
         this.inputEl.attr('disabled', 'disabled');
         this.busy = true;
         this.afterPaint(() =>
-            this.model.importFileWithXml(this.params, err => {
+            this.model.importFileWithXml(this.params, (err) => {
                 if (err) {
                     this.params.name = '';
                     this.params.fileXml = null;
@@ -702,12 +778,7 @@ class OpenView extends View {
         if (this.busy) {
             return;
         }
-        const storage =
-            Storage[
-                $(e.target)
-                    .closest('.open__icon')
-                    .data('storage')
-            ];
+        const storage = Storage[$(e.target).closest('.open__icon').data('storage')];
         if (!storage) {
             return;
         }
@@ -733,14 +804,14 @@ class OpenView extends View {
             this.busy = false;
             if (err || !files) {
                 err = err ? err.toString() : '';
+                if (err === 'browser-auth-started') {
+                    return;
+                }
                 if (err.lastIndexOf('OAuth', 0) !== 0 && !Alerts.alertDisplayed) {
                     Alerts.error({
                         header: Locale.openError,
-                        body:
-                            Locale.openListErrorBody +
-                            '<pre class="modal__pre">' +
-                            escape(err.toString()) +
-                            '</pre>'
+                        body: Locale.openListErrorBody,
+                        pre: err.toString()
                     });
                 }
                 return;
@@ -767,16 +838,12 @@ class OpenView extends View {
                     dir: true
                 });
             }
-            const listView = new StorageFileListView({
-                files,
-                showHiddenFiles: config && config.showHiddenFiles
-            });
-            listView.on('selected', file => {
+            const listView = new StorageFileListView({ files });
+            listView.on('selected', (file) => {
                 if (file.dir) {
                     this.listStorage(storage, {
                         dir: file.path,
-                        prevDir: (config && config.dir) || '',
-                        showHiddenFiles: true
+                        prevDir: (config && config.dir) || ''
                     });
                 } else {
                     this.openStorageFile(storage, file);
@@ -785,7 +852,7 @@ class OpenView extends View {
             Alerts.alert({
                 header: Locale.openSelectFile,
                 body: Locale.openSelectFileBody,
-                icon: storage.icon || 'files-o',
+                icon: storage.icon || 'file-alt',
                 buttons: [{ result: '', title: Locale.alertCancel }],
                 esc: '',
                 click: '',
@@ -804,7 +871,9 @@ class OpenView extends View {
         this.params.name = UrlFormat.getDataFileName(file.name);
         this.params.rev = file.rev;
         this.params.fileData = null;
+        this.encryptedPassword = null;
         this.displayOpenFile();
+        this.displayOpenDeviceOwnerAuth();
     }
 
     showConfig(storage) {
@@ -900,7 +969,9 @@ class OpenView extends View {
             this.params.name = UrlFormat.getDataFileName(req.path);
             this.params.rev = stat.rev;
             this.params.fileData = null;
+            this.encryptedPassword = null;
             this.displayOpenFile();
+            this.displayOpenDeviceOwnerAuth();
         }
     }
 
@@ -919,10 +990,6 @@ class OpenView extends View {
         }
         const fileInfo = this.model.fileInfos.get(lastOpenFiles[this.currentSelectedIndex].id);
         this.showOpenFileInfo(fileInfo);
-
-        if (fileInfo && Launcher && Launcher.fingerprints) {
-            this.openFileWithFingerprint(fileInfo);
-        }
     }
 
     moveOpenFileSelectionDown() {
@@ -960,6 +1027,154 @@ class OpenView extends View {
             delete this.views.gen;
         });
         this.views.gen = generator;
+    }
+
+    userIdle() {
+        this.inputEl.val('');
+        this.passwordInput.reset();
+        this.passwordInput.setElement(this.inputEl);
+    }
+
+    usbDevicesChanged() {
+        if (this.model.settings.canOpenOtpDevice) {
+            const hasYubiKeys = !!UsbListener.attachedYubiKeys;
+
+            const showOpenIcon = hasYubiKeys && this.model.settings.yubiKeyShowIcon;
+            this.$el.find('.open__icon-yubikey').toggleClass('hide', !showOpenIcon);
+
+            const showChallengeResponseIcon =
+                hasYubiKeys && this.model.settings.yubiKeyShowChalResp;
+            this.$el
+                .find('.open__settings-yubikey')
+                .toggleClass('open__settings-yubikey--present', !!showChallengeResponseIcon);
+
+            if (!hasYubiKeys && this.busy && this.otpDevice) {
+                this.otpDevice.cancelOpen();
+            }
+        }
+    }
+
+    openYubiKey() {
+        if (this.busy && this.otpDevice) {
+            this.otpDevice.cancelOpen();
+        }
+        if (!this.busy) {
+            this.busy = true;
+            this.inputEl.attr('disabled', 'disabled');
+            const icon = this.$el.find('.open__icon-yubikey');
+            icon.toggleClass('flip3d', true);
+
+            YubiKey.checkToolStatus().then((status) => {
+                if (status !== 'ok') {
+                    icon.toggleClass('flip3d', false);
+                    this.inputEl.removeAttr('disabled');
+                    this.busy = false;
+                    return Events.emit('toggle-settings', 'devices');
+                }
+                this.otpDevice = this.model.openOtpDevice((err) => {
+                    if (err && !YubiKey.aborted) {
+                        Alerts.error({
+                            header: Locale.openError,
+                            body: Locale.openErrorDescription,
+                            pre: this.errorToString(err)
+                        });
+                    }
+                    this.otpDevice = null;
+                    icon.toggleClass('flip3d', false);
+                    this.inputEl.removeAttr('disabled');
+                    this.busy = false;
+                });
+            });
+        }
+    }
+
+    selectYubiKeyChalResp() {
+        if (this.busy) {
+            return;
+        }
+
+        if (this.params.chalResp) {
+            this.params.chalResp = null;
+            this.el
+                .querySelector('.open__settings-yubikey')
+                .classList.remove('open__settings-yubikey--active');
+            this.focusInput();
+            return;
+        }
+
+        const chalRespView = new OpenChalRespView();
+        chalRespView.on('select', ({ vid, pid, serial, slot }) => {
+            this.params.chalResp = { vid, pid, serial, slot };
+            this.el
+                .querySelector('.open__settings-yubikey')
+                .classList.add('open__settings-yubikey--active');
+            this.focusInput();
+        });
+
+        Alerts.alert({
+            header: Locale.openChalRespHeader,
+            icon: 'usb-token',
+            buttons: [{ result: '', title: Locale.alertCancel }],
+            esc: '',
+            click: '',
+            view: chalRespView
+        });
+    }
+
+    errorToString(err) {
+        const str = err.toString();
+        if (str !== {}.toString()) {
+            return str;
+        }
+        if (err.ykError && err.code) {
+            return Locale.yubiKeyErrorWithCode.replace('{}', err.code);
+        }
+        return undefined;
+    }
+
+    setEncryptedPassword(fileInfo) {
+        this.encryptedPassword = null;
+        if (!fileInfo.id) {
+            return;
+        }
+        switch (this.model.settings.deviceOwnerAuth) {
+            case 'memory':
+                this.encryptedPassword = this.model.getMemoryPassword(fileInfo.id);
+                break;
+            case 'file':
+                this.encryptedPassword = {
+                    value: fileInfo.encryptedPassword,
+                    date: fileInfo.encryptedPasswordDate
+                };
+                break;
+        }
+        this.checkIfEncryptedPasswordDateIsValid();
+    }
+
+    checkIfEncryptedPasswordDateIsValid() {
+        if (this.encryptedPassword) {
+            const maxDate = new Date(this.encryptedPassword.date);
+            maxDate.setMinutes(
+                maxDate.getMinutes() + this.model.settings.deviceOwnerAuthTimeoutMinutes
+            );
+            if (maxDate < new Date()) {
+                this.encryptedPassword = null;
+            }
+        }
+    }
+
+    unlockMessageChanged(unlockMessageRes) {
+        const messageEl = this.el.querySelector('.open__message');
+        messageEl.classList.toggle('hide', !unlockMessageRes);
+
+        if (unlockMessageRes) {
+            const contentEl = this.el.querySelector('.open__message-content');
+            contentEl.innerText = Locale[unlockMessageRes];
+        }
+    }
+
+    openMessageCancelClick() {
+        this.model.rejectPendingFileUnlockPromise('User canceled');
     }
 }
 

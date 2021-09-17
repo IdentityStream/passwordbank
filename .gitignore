@@ -3,7 +3,7 @@ misc.xml
 .DS_Store
 node_modules/
 *.log
-dist/
+/dist/
 tmp/
 coverage/
 keys
@@ -14,6 +14,6 @@ obj/
 xcuserdata/
 *.suo
 .idea/
-.vscode
+.vscode/
 *.iml
 test/dist/

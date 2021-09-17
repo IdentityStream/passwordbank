@@ -1,7 +1,7 @@
 import { View } from 'framework/views/view';
-import { RuntimeInfo } from 'comp/app/runtime-info';
+import { RuntimeInfo } from 'const/runtime-info';
 import { Links } from 'const/links';
-import { escape } from 'util/fn';
+import { Launcher } from 'comp/launcher';
 import template from 'templates/settings/settings-help.hbs';
 
 class SettingsHelpView extends View {
@@ -17,19 +17,19 @@ class SettingsHelpView extends View {
             RuntimeInfo.buildDate +
             ')\n' +
             'Environment: ' +
-            (RuntimeInfo.launcher ? RuntimeInfo.launcher : 'web') +
+            (Launcher ? Launcher.name + ' v' + Launcher.version : 'web') +
             '\n' +
             'User-Agent: ' +
-            RuntimeInfo.userAgent;
+            navigator.userAgent;
 
         super.render({
             issueLink:
                 Links.Repo +
                 '/issues/new?body=' +
-                encodeURIComponent('!please describe your issue here!\n\n' + appInfo),
+                encodeURIComponent('# please describe your issue here\n\n' + appInfo),
             desktopLink: Links.Desktop,
             webAppLink: Links.WebApp,
-            appInfo: escape(appInfo)
+            appInfo
         });
     }
 }

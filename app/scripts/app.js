@@ -1,13 +1,16 @@
 import { Events } from 'framework/events';
+import { StartProfiler } from 'comp/app/start-profiler';
 import { FileInfoCollection } from 'collections/file-info-collection';
 import { AppRightsChecker } from 'comp/app/app-rights-checker';
 import { ExportApi } from 'comp/app/export-api';
 import { SingleInstanceChecker } from 'comp/app/single-instance-checker';
 import { Updater } from 'comp/app/updater';
-import { AuthReceiver } from 'comp/browser/auth-receiver';
+import { UsbListener } from 'comp/app/usb-listener';
+import { BrowserExtensionConnector } from 'comp/extension/browser-extension-connector';
 import { FeatureTester } from 'comp/browser/feature-tester';
 import { FocusDetector } from 'comp/browser/focus-detector';
 import { IdleTracker } from 'comp/browser/idle-tracker';
+import { ThemeWatcher } from 'comp/browser/theme-watcher';
 import { KeyHandler } from 'comp/browser/key-handler';
 import { PopupNotifier } from 'comp/browser/popup-notifier';
 import { Launcher } from 'comp/launcher';
@@ -24,24 +27,29 @@ import { KdbxwebInit } from 'util/kdbxweb/kdbxweb-init';
 import { Locale } from 'util/locale';
 import { AppView } from 'views/app-view';
 import 'hbs-helpers';
+import { AutoType } from './auto-type';
+import { Storage } from './storage';
+
+StartProfiler.milestone('loading modules');
 
 const ready = (Launcher && Launcher.ready) || $;
 
 ready(() => {
-    if (AuthReceiver.receive()) {
-        return;
-    }
+    StartProfiler.milestone('document ready');
 
     const appModel = new AppModel();
+    StartProfiler.milestone('creating app model');
 
     Promise.resolve()
         .then(loadConfigs)
         .then(initModules)
         .then(loadRemoteConfig)
         .then(ensureCanRun)
+        .then(initStorage)
+        .then(initUsbListener)
         .then(showApp)
         .then(postInit)
-        .catch(e => {
+        .catch((e) => {
             appModel.appLogger.error('Error starting app', e);
         });
 
@@ -51,17 +59,22 @@ ready(() => {
                 'Running in iframe is not allowed (this can be changed in the app config).'
             );
         }
-        return FeatureTester.test().catch(e => {
-            Alerts.error({
-                header: Locale.appSettingsError,
-                body: Locale.appNotSupportedError + '<br/><br/>' + e,
-                buttons: [],
-                esc: false,
-                enter: false,
-                click: false
+        return FeatureTester.test()
+            .catch((e) => {
+                Alerts.error({
+                    header: Locale.appSettingsError,
+                    body: Locale.appNotSupportedError,
+                    pre: e,
+                    buttons: [],
+                    esc: false,
+                    enter: false,
+                    click: false
+                });
+                throw 'Feature testing failed: ' + e;
+            })
+            .then(() => {
+                StartProfiler.milestone('checking features');
             });
-            throw 'Feature testing failed: ' + e;
-        });
     }
 
     function loadConfigs() {
@@ -70,17 +83,23 @@ ready(() => {
             UpdateModel.load(),
             RuntimeDataModel.load(),
             FileInfoCollection.load()
-        ]);
+        ]).then(() => {
+            StartProfiler.milestone('loading configs');
+        });
     }
 
     function initModules() {
         KeyHandler.init();
-        IdleTracker.init();
         PopupNotifier.init();
         KdbxwebInit.init();
         FocusDetector.init();
+        AutoType.init();
+        ThemeWatcher.init();
+        SettingsManager.init();
         window.kw = ExportApi;
-        return PluginManager.init();
+        return PluginManager.init().then(() => {
+            StartProfiler.milestone('initializing modules');
+        });
     }
 
     function showSettingsLoadError() {
@@ -95,23 +114,39 @@ ready(() => {
     }
 
     function loadRemoteConfig() {
-        return Promise.resolve().then(() => {
-            SettingsManager.setBySettings(appModel.settings);
-            const configParam = getConfigParam();
-            if (configParam) {
-                return appModel
-                    .loadConfig(configParam)
-                    .then(() => {
-                        SettingsManager.setBySettings(appModel.settings);
-                    })
-                    .catch(e => {
-                        if (!appModel.settings.cacheConfigSettings) {
-                            showSettingsLoadError();
-                            throw e;
-                        }
-                    });
-            }
-        });
+        return Promise.resolve()
+            .then(() => {
+                SettingsManager.setBySettings();
+                const configParam = getConfigParam();
+                if (configParam) {
+                    return appModel
+                        .loadConfig(configParam)
+                        .then(() => {
+                            SettingsManager.setBySettings();
+                        })
+                        .catch((e) => {
+                            if (!appModel.settings.cacheConfigSettings) {
+                                showSettingsLoadError();
+                                throw e;
+                            }
+                        });
+                }
+            })
+            .then(() => {
+                StartProfiler.milestone('loading remote config');
+            });
+    }
+
+    function initStorage() {
+        for (const prv of Object.values(Storage)) {
+            prv.init();
+        }
+        StartProfiler.milestone('initializing storage');
+    }
+
+    function initUsbListener() {
+        UsbListener.init();
+        StartProfiler.milestone('starting usb');
     }
 
     function showApp() {
@@ -121,14 +156,14 @@ ready(() => {
             const protocolIsInsecure = ['https:', 'file:', 'app:'].indexOf(location.protocol) < 0;
             const hostIsInsecure = location.hostname !== 'localhost';
             if (protocolIsInsecure && hostIsInsecure && !skipHttpsWarning) {
-                return new Promise(resolve => {
+                return new Promise((resolve) => {
                     Alerts.error({
                         header: Locale.appSecWarn,
                         icon: 'user-secret',
                         esc: false,
                         enter: false,
                         click: false,
-                        body: Locale.appSecWarnBody1 + '<br/><br/>' + Locale.appSecWarnBody2,
+                        body: Locale.appSecWarnBody1 + '\n\n' + Locale.appSecWarnBody2,
                         buttons: [{ result: '', title: Locale.appSecWarnBtn, error: true }],
                         complete: () => {
                             showView();
@@ -138,27 +173,30 @@ ready(() => {
                 });
             } else {
                 showView();
+                return new Promise((resolve) => requestAnimationFrame(resolve));
             }
         });
     }
 
     function postInit() {
-        Updater.init();
-        SingleInstanceChecker.init();
-        AppRightsChecker.init();
-        setTimeout(() => PluginManager.runAutoUpdate(), Timeouts.AutoUpdatePluginsAfterStart);
+        setTimeout(() => {
+            Updater.init();
+            SingleInstanceChecker.init();
+            AppRightsChecker.init();
+            IdleTracker.init();
+            BrowserExtensionConnector.init(appModel);
+            PluginManager.runAutoUpdate();
+        }, Timeouts.AutoUpdatePluginsAfterStart);
     }
 
     function showView() {
-        appModel.prepare();
         new AppView(appModel).render();
-        Events.emit('app-ready');
-        logStartupTime();
-    }
+        StartProfiler.milestone('first view rendering');
 
-    function logStartupTime() {
-        const time = Math.round(performance.now());
-        appModel.appLogger.info(`Started in ${time}ms ¯\\_(ツ)_/¯`);
+        Events.emit('app-ready');
+        StartProfiler.milestone('app ready event');
+
+        StartProfiler.report();
     }
 
     function getConfigParam() {
