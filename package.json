@@ -50,7 +50,7 @@
     "@fortawesome/fontawesome-free": "^5.15.3",
     "@keeweb/keeweb-native-messaging-host": "https://github.com/keeweb/keeweb-connect/releases/download/0.3.5/keeweb-native-messaging-host.tgz",
     "@keeweb/keeweb-native-modules": "https://github.com/keeweb/keeweb-native-modules/releases/download/0.11.6/keeweb-native-modules.tgz",
-    "argon2-browser": "1.15.4",
+    "argon2-browser": "1.18.0",
     "baron": "3.0.3",
     "bourbon": "^7.0.0",
     "chai": "^4.3.4",
