@@ -54,7 +54,7 @@
     "baron": "3.0.3",
     "bourbon": "^7.0.0",
     "chai": "^4.3.4",
-    "dompurify": "^2.2.8",
+    "dompurify": "^2.3.10",
     "electron": "^17.1.1",
     "events": "^3.3.0",
     "handlebars": "^4.7.7",
