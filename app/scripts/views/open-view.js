@@ -72,6 +72,7 @@ class OpenView extends View {
     currentSelectedIndex = -1;
     encryptedPassword = null;
     searchInput = null;
+    searchWrapper = null;
     lastOpenFiles = null;
     searchText = null;
     loadingContainer = null;
@@ -147,6 +148,7 @@ class OpenView extends View {
         this.loadingContainer = this.$el.find('.loading__container');
         this.openPassArea = this.$el.find('.open__pass-area');
         this.openIcons = this.$el.find('.open__icons');
+        this.searchWrapper = this.$el.find('.list__search-field-wrap');
     }
 
     resetParams() {
@@ -734,6 +736,7 @@ class OpenView extends View {
 
     toggleLoadingIndicator(isLoading) {
         this.loadingContainer.toggleClass('hide', !isLoading);
+        this.searchWrapper.toggleClass('hide', isLoading);
         this.openPassArea.toggleClass('hide', isLoading);
         this.openIcons.toggleClass('hide', isLoading);
     }

@@ -11,7 +11,7 @@
         overflow-y: auto;
     }
 
-    &__icons {
+    &__icons, .list__search-field-wrap {
         display: flex;
         align-items: stretch;
         flex-direction: row;
@@ -21,6 +21,10 @@
         .open--drag & {
             display: none;
         }
+    }
+
+    .list__search-field-wrap {
+        flex: none;
     }
 
     .loading__container {
