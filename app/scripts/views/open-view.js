@@ -1295,8 +1295,8 @@ class OpenView extends View {
                 entryIds.forEach((id) => entryIdsToShow.add(id));
                 filesIdsToShow.add(file.id);
             } else if (
-                file.name.includes(searchText) ||
-                file.tenantName.toLowerCase().includes(searchText)
+                file.name.toLowerCase().includes(searchText) ||
+                (file.tenantName && file.tenantName.toLowerCase().includes(searchText))
             ) {
                 filesIdsToShow.add(file.id);
             }
