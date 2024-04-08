@@ -27,7 +27,8 @@ function config(options) {
         },
         output: {
             path: path.resolve('.', 'tmp'),
-            filename: 'js/[name].js'
+            filename: 'js/[name].js',
+            hashFunction: 'xxhash64'
         },
         target: 'web',
         performance: {
