@@ -91,7 +91,7 @@
     "exports-loader": "2.0.0",
     "form-data": "^4.0.0",
     "fs-extra": "^10.0.0",
-    "grunt": "1.4.0",
+    "grunt": "1.6.1",
     "grunt-chmod": "^1.1.1",
     "grunt-contrib-clean": "2.0.0",
     "grunt-contrib-copy": "1.0.0",
