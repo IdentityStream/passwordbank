@@ -178,7 +178,7 @@
         }
 
         .fa {
-            margin-right: $base-padding-h / 2;
+            margin-right: calc($base-padding-h / 2);
         }
 
         &-drag-top {
