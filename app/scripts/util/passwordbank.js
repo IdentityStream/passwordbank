@@ -1,6 +1,7 @@
 import { PasswordGenerator } from './generators/password-generator';
 import { Locale } from './locale';
 import * as kdbxweb from 'kdbxweb';
+import { RuntimeInfo } from 'const/runtime-info';
 
 class PasswordBankError extends Error {
     constructor(message, statusCode) {
@@ -180,10 +181,21 @@ async function getPasswordForPasswordVault(path, entryId) {
         );
         return await response.json();
     } catch (error) {
-        const oneTimeCodeUri = new URL('/onetimecode');
+        let baseServiceManagerUrl;
+        if (RuntimeInfo.devMode) {
+            baseServiceManagerUrl = RuntimeInfo.serviceManagerHost;
+        } else {
+            baseServiceManagerUrl = window.origin;
+        }
+        const oneTimeCodeUri = new URL('/onetimecode', baseServiceManagerUrl);
         oneTimeCodeUri.searchParams.set('title', Locale.passwordBankTitle);
 
-        const redirectUri = new URL('/passwordbank');
+        let redirectUri;
+        if (RuntimeInfo.devMode) {
+            redirectUri = new URL('/', window.origin);
+        } else {
+            redirectUri = new URL('/passwordbank', window.origin);
+        }
         redirectUri.searchParams.set('vault', passwordVaultToGetPasswordFor);
 
         if (entryId) {

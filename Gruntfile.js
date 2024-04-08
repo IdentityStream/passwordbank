@@ -364,7 +364,8 @@ module.exports = function (grunt) {
                 webpack: webpackConfig.config({
                     ...webpackOptions,
                     mode: 'development',
-                    sha: 'dev'
+                    sha: 'dev',
+                    servicemanagerHost
                 }),
                 publicPath: '/',
                 contentBase: [
