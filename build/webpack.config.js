@@ -27,7 +27,8 @@ function config(options) {
         },
         output: {
             path: path.resolve('.', 'tmp'),
-            filename: 'js/[name].js'
+            filename: 'js/[name].js',
+            hashFunction: 'xxhash64'
         },
         target: 'web',
         performance: {
@@ -130,7 +131,13 @@ function config(options) {
                                 replace: options.sha
                             },
                             { search: /@@DEVMODE/g, replace: devMode ? '1' : '' },
-                            { search: /@@APPLE_TEAM_ID/g, replace: options.appleTeamId }
+                            { search: /@@APPLE_TEAM_ID/g, replace: options.appleTeamId },
+                            {
+                                search: /@@SERVICEMANAGER_HOST/g,
+                                replace: options.servicemanagerHost
+                                    ? options.servicemanagerHost
+                                    : ''
+                            }
                         ]
                     }
                 },

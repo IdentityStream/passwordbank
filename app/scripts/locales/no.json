@@ -151,6 +151,8 @@
   "keyEnter": "Enter",
   "iconFavTitle": "Last ned og bruk nettstedsikon",
   "iconSelCustom": "Velg eget ikon",
+  "iconMissingIndexHeader": "Søk ikke tilgjengelig for dette hvelvet",
+  "iconMissingIndexBody": "Passordhvelvet er uindeksert. Åpne hvelvet, gå til innstillinger og trykk på 'Oppdater søkeindeks' eller gjør en vilkårlig endring og lagre.",
   "listEmptyTitle": "Tom",
   "listEmptyAdd": "legg til med {}-knappen over",
   "listGroup": "Gruppe",
@@ -173,6 +175,7 @@
   "searchAdvTitle": "Bytt til avansert søk",
   "searchSearchIn": "Søk i",
   "searchOther": "Andre felt",
+  "searchPlaceholder": "Søk i oppføringer",
   "searchProtect": "Sikre felt",
   "searchOptions": "Innstillinger",
   "searchCase": "Skill små/store",
@@ -597,7 +600,7 @@
   "lockErrorHeader": "Kunne ikke låse passordbanken",
   "lockErrorBody": "Vennligst lukk nettleservinduet for å beskytte passordene. Feilen var:",
   "newPasswordVault": "Nytt passordhvelv",
-  "passwordBankTitle":"Passordbanken",
+  "passwordBankTitle": "Passordbanken",
   "passwordVaultTypeLabel": "Type",
   "passwordVaultTypePersonal": "Personlig",
   "passwordVaultTypeShared": "Delt",
@@ -618,5 +621,7 @@
   "importPassword": "Importer passord",
   "uploadCSV": "Last opp CSV",
   "csvFormat": "Format",
-  "csvExtraFieldsHelperText": "Det er mulig å importere flere felter ved å legge de til i csv-en."
+  "csvExtraFieldsHelperText": "Det er mulig å importere flere felter ved å legge de til i csv-en.",
+  "updateSearchIndex": "Oppdater søkeindeks",
+  "openFileLoadingText": "Låser opp passordhvelv"
 }

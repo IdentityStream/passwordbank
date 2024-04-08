@@ -1,6 +1,7 @@
 import { PasswordGenerator } from './generators/password-generator';
 import { Locale } from './locale';
 import * as kdbxweb from 'kdbxweb';
+import { RuntimeInfo } from 'const/runtime-info';
 
 class PasswordBankError extends Error {
     constructor(message, statusCode) {
@@ -169,7 +170,7 @@ async function renamePasswordVault(path, title) {
     }
 }
 
-async function getPasswordForPasswordVault(path) {
+async function getPasswordForPasswordVault(path, entryId) {
     const passwordVaultToGetPasswordFor = getPasswordVaultFromPath(path);
     try {
         const response = await passwordBankFetch(
@@ -180,11 +181,28 @@ async function getPasswordForPasswordVault(path) {
         );
         return await response.json();
     } catch (error) {
-        window.location = `/onetimecode?title=${encodeURIComponent(
-            Locale.passwordBankTitle
-        )}&redirectUri=${encodeURIComponent(
-            `/passwordbank/?vault=${passwordVaultToGetPasswordFor}`
-        )}`;
+        let baseServiceManagerUrl;
+        if (RuntimeInfo.devMode) {
+            baseServiceManagerUrl = RuntimeInfo.serviceManagerHost;
+        } else {
+            baseServiceManagerUrl = window.origin;
+        }
+        const oneTimeCodeUri = new URL('/onetimecode', baseServiceManagerUrl);
+        oneTimeCodeUri.searchParams.set('title', Locale.passwordBankTitle);
+
+        let redirectUri;
+        if (RuntimeInfo.devMode) {
+            redirectUri = new URL('/', window.origin);
+        } else {
+            redirectUri = new URL('/passwordbank', window.origin);
+        }
+        redirectUri.searchParams.set('vault', passwordVaultToGetPasswordFor);
+
+        if (entryId) {
+            redirectUri.searchParams.set('entryId', entryId);
+        }
+        oneTimeCodeUri.searchParams.set('redirectUri', redirectUri.toString());
+        window.location = oneTimeCodeUri.toString();
     }
 }
 

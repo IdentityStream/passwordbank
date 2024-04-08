@@ -150,7 +150,8 @@ class AppModel {
                             icon: file.icon,
                             tenantName: file.tenantName,
                             writeAccess: file.writeAccess,
-                            deleteAccess: file.deleteAccess
+                            deleteAccess: file.deleteAccess,
+                            entries: file.entries
                         })
                 )
                 .reverse()
@@ -319,7 +320,11 @@ class AppModel {
             this.activeEntryId = firstEntry ? firstEntry.id : null;
         }
         Events.emit('filter', { filter: this.filter, sort: this.sort, entries });
-        Events.emit('entry-selected', entries.get(this.activeEntryId));
+        const activeEntry = entries.get(this.activeEntryId);
+        Events.emit('entry-selected', activeEntry);
+        if (this.activeEntryId && activeEntry) {
+            Events.emit('select-list-item', activeEntry);
+        }
     }
 
     refresh() {
@@ -869,6 +874,11 @@ class AppModel {
     }
 
     fileOpened(file, data, params) {
+        if (params.entryId) {
+            // File id always changes.
+            this.activeEntryId = file.id + ':' + params.entryId.split(':')[1];
+            this.refresh();
+        }
         if (file.storage === 'file') {
             Storage.file.watch(
                 file.path,
@@ -995,6 +1005,14 @@ class AppModel {
                     keyFileHash: file.getKeyFileHash()
                 });
             }
+
+            if (!err) {
+                const entries = this.getEntryMetadata(file);
+                if (entries) {
+                    fileInfo.set(entries);
+                }
+            }
+
             if (!this.fileInfos.get(fileInfo.id)) {
                 this.fileInfos.unshift(fileInfo);
             }
@@ -1076,6 +1094,7 @@ class AppModel {
                     });
                 });
             };
+
             const saveToStorage = (data) => {
                 logger.info('Save data to storage');
                 const storageRev = fileInfo.storage === storage ? fileInfo.rev : undefined;
@@ -1107,9 +1126,11 @@ class AppModel {
                             complete();
                         }
                     },
-                    storageRev
+                    storageRev,
+                    this.getEntryMetadata(file)
                 );
             };
+
             const saveToCacheAndStorage = () => {
                 logger.info('Getting file data for saving');
                 file.getData((data, err) => {
@@ -1224,6 +1245,23 @@ class AppModel {
             fileInfo.backup = backup;
         }
         this.fileInfos.save();
+    }
+
+    getEntryMetadata(file) {
+        if (!file) {
+            return null;
+        }
+        return {
+            entries: Object.values(file.entryMap)
+                .filter((x) => x.group.getEffectiveEnableSearching())
+                .map((x) => {
+                    return {
+                        id: x.id,
+                        title: x.title,
+                        searchText: x.searchText
+                    };
+                })
+        };
     }
 
     backupFile(file, data, callback) {
