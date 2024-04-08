@@ -28,7 +28,7 @@ $fa-glyph-counter: 61440; // 0xf000
     $fa-glyph-counter: $fa-glyph-counter + 1 !global;
 
     $lo-part: $fa-glyph-counter % 256;
-    $hi-part: ($fa-glyph-counter - $lo-part) / 256;
+    $hi-part: calc(($fa-glyph-counter - $lo-part) / 256);
     $hex-num-str: str-slice(#{rgb($hi-part, $lo-part, 1)}, 2, 5);
 
     $glyph: unquote('"\\#{$hex-num-str}"');

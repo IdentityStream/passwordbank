@@ -10,5 +10,5 @@
 }
 
 @function semi-mute-percent($percent) {
-    @return $percent / 2;
+    @return calc($percent / 2);
 }
