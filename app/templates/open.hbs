@@ -72,7 +72,8 @@
             </div>
         {{/if}}
     </div>
-    <div class="list__search-field-wrap list__search-field-wrap--text">
+    {{#if lastOpenFiles}}
+        <div class="list__search-field-wrap list__search-field-wrap--text">
             <input type="text" placeholder="{{res 'searchPlaceholder'}}" class="list__search-field input-search" autocomplete="off" spellcheck="false">
             <div class="list__search-icon-search" >
                 <i class="fa fa-search"></i>
@@ -81,6 +82,7 @@
                 <i class="fa fa-times-circle"></i>
             </div>
         </div>
+     {{/if}}
     <div class="open__pass-area">
         <div class="hide">
             {{!-- we need these inputs to screw browsers passwords autocompletion --}}
