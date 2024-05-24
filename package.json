@@ -44,7 +44,7 @@
     "argon2-browser": "1.15.4",
     "baron": "3.0.3",
     "bourbon": "^7.0.0",
-    "chai": "^4.3.4",
+    "chai": "^4.4.1",
     "dompurify": "^2.2.8",
     "events": "^3.3.0",
     "handlebars": "^4.7.7",
