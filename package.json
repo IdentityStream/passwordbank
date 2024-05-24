@@ -53,7 +53,7 @@
     "kdbxweb": "^2.0.4",
     "lodash": "^4.17.21",
     "marked": "^4.0.10",
-    "morphdom": "^2.6.1",
+    "morphdom": "^2.7.2",
     "normalize.css": "8.0.1",
     "pikaday": "1.8.2",
     "tweetnacl": "^1.0.3"
