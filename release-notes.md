@@ -1,5 +1,25 @@
 Release notes
 -------------
+##### v1.18.8 (2026-04-29)
+* fix: specify puppeteer argument to fix test builds for ci by @Aetherinox in https://github.com/keeweb/keeweb/pull/2143
+* Add verify workflow by @HarlemSquirrel in https://github.com/keeweb/keeweb/pull/2142
+* fix: add legacy support for npm run dev by @Aetherinox in https://github.com/keeweb/keeweb/pull/2144
+* Bump electron to 13 by @HarlemSquirrel in https://github.com/keeweb/keeweb/pull/2052
+* fix: addresses not being able to unset a keyfile once added to a vault by @Aetherinox in https://github.com/keeweb/keeweb/pull/2146
+* fix: support multiple otpauth url structures by @Aetherinox in https://github.com/keeweb/keeweb/pull/2148
+* repo: convert issue templates into forms by @Aetherinox in https://github.com/keeweb/keeweb/pull/2150
+* fix: convert space character to non-breaking space on password reveal by @Aetherinox in https://github.com/keeweb/keeweb/pull/2151
+* Fixed issue with Csv parser parse (#1904) by @R3dIO in https://github.com/keeweb/keeweb/pull/1944
+* Update to new UUID for firefox extension by @HarlemSquirrel in https://github.com/keeweb/keeweb/pull/2174
+* Hotfix: Downgrade gdrive scope to drive.file by @vanceism7 in https://github.com/keeweb/keeweb/pull/2208
+
+##### v1.18.7 (2021-07-18)
+`+` added Microsoft Teams storage  
+`+` added a possibility to override tenant in Microsoft OneDrive  
+`!` disabled automatic installation of KeePassXC-Browser extension  
+`+` added an option to diagnose YubiKey code listing issues  
+`-` fix #1845: fixed a visible crash on socket write error  
+
 ##### v1.18.6 (2021-05-19)
 `-` fix #1824: saving KDBX3 files with compression disabled  
 `-` fix #1818: extension connection error if browser cannot be identified  
